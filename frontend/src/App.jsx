@@ -426,7 +426,7 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm sm:text-base font-semibold tracking-tight text-slate-100">
-                PDF & PPT Chat
+                Indexio
               </h1>
               <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-indigo-500/30 text-indigo-300 bg-indigo-500/10">
                 RAG
@@ -471,7 +471,7 @@ export default function App() {
                 <FileText className="size-8" />
               </div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 mb-2">
-                Welcome to Document Chat
+                Welcome to Indexio
               </h2>
               <p className="text-sm text-slate-400 leading-relaxed mb-8">
                 {indexed

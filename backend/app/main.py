@@ -43,7 +43,7 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Local PDF RAG", lifespan=lifespan)
+app = FastAPI(title="Indexio", lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=config.CORS_ORIGINS,
