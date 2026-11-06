@@ -15,8 +15,8 @@ async function errorMessage(res) {
   return `Request failed (HTTP ${res.status}).`;
 }
 
-// POST /api/upload -> { doc_id, filename, pages, chunks }
-export async function uploadPdf(file) {
+// POST /api/upload -> { doc_id, filename, pages, units, unit_label, chunks, kind }
+export async function uploadDocument(file) {
   const body = new FormData();
   body.append("file", file);
   let res;
@@ -28,6 +28,8 @@ export async function uploadPdf(file) {
   if (!res.ok) throw new Error(await errorMessage(res));
   return res.json();
 }
+
+export const uploadPdf = uploadDocument;
 
 // POST /api/study -> { filename, kind, units, unit_label, cards: [{ front, back, source }] }
 export async function generateFlashcards(file, count) {

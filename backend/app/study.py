@@ -75,7 +75,7 @@ class DocumentError(ValueError):
 def detect_kind(name: str, head: bytes) -> str:
     """Return 'pdf' or 'pptx' from the filename and the first bytes of the file."""
     lower = Path(name).name.lower()
-    if head.startswith(b"\xd0\xcf\x11\xe0"):
+    if head.startswith(b"\xd0\xcf\x11\xe0") or lower.endswith(".ppt"):
         raise DocumentError("Older .ppt files are not supported. Save the deck as .pptx and upload that.")
     if b"%PDF-" in head[:1024] or lower.endswith(".pdf"):
         return "pdf"

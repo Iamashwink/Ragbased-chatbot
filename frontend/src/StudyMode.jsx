@@ -28,7 +28,12 @@ import { cn } from "./lib/utils.js";
 const COUNTS = [3, 5, 8, 12, 15];
 
 function isStudyFile(file) {
-  return /\.(pdf|pptx)$/i.test(file?.name || "");
+  return (
+    /\.(pdf|pptx|ppt)$/i.test(file?.name || "") ||
+    file?.type === "application/pdf" ||
+    file?.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+    file?.type === "application/vnd.ms-powerpoint"
+  );
 }
 
 export default function StudyMode() {
@@ -115,7 +120,7 @@ export default function StudyMode() {
     return () => window.removeEventListener("keydown", onKey);
   }, [status, deck]);
 
-  const isPptx = Boolean(file && /\.pptx$/i.test(file.name));
+  const isPptx = Boolean(file && /\.(pptx|ppt)$/i.test(file.name));
 
   return (
     <div
@@ -149,7 +154,7 @@ export default function StudyMode() {
         <input
           ref={fileRef}
           type="file"
-          accept=".pdf,.pptx,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+          accept=".pdf,.pptx,.ppt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
           hidden
           onChange={onFileChange}
         />
@@ -265,7 +270,7 @@ export default function StudyMode() {
             <Layers className="size-8" />
           </div>
           <h3 className="text-base font-semibold text-slate-200 mb-1 group-hover:text-white transition-colors">
-            Drop a .pdf or .pptx file here
+            Drop a PDF or PowerPoint deck (.pptx) here
           </h3>
           <p className="text-xs text-slate-400">
             or click to browse from your computer

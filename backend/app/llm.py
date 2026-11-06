@@ -59,8 +59,8 @@ class LLMError(RuntimeError):
     """LLM provider failed or the response stream was incomplete."""
 
 
-def build_messages(question: str, hits: list[Hit]) -> list[dict[str, str]]:
-    context = "\n\n---\n\n".join(f"[Page {h.page}]\n{h.text}" for h in hits)
+def build_messages(question: str, hits: list[Hit], label: str = "Page") -> list[dict[str, str]]:
+    context = "\n\n---\n\n".join(f"[{label} {h.page}]\n{h.text}" for h in hits)
     return [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user", "content": f"Excerpts:\n\n{context}\n\nQuestion: {question}"},
@@ -256,7 +256,7 @@ async def complete(
         json_schema=json_schema,
         temperature=temperature,
     ):
-        if not chunk.is_thinking:
+        if not getattr(chunk, "is_thinking", False):
             parts.append(str(chunk))
         if json_schema is not None and _closed_json_array("".join(parts)):
             break

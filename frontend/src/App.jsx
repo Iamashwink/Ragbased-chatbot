@@ -16,7 +16,7 @@ import {
   Sparkles,
   Square,
 } from "lucide-react";
-import { getIndexedDocument, streamChat, uploadPdf } from "./api.js";
+import { getIndexedDocument, streamChat, uploadDocument } from "./api.js";
 import { marked } from "marked";
 import DOMPurify from "dompurify";
 import StudyMode from "./StudyMode.jsx";
@@ -198,10 +198,10 @@ function Message({ msg, onStop, onEditPrompt, isLatestAssistant, isBusy, lastQue
             {msg.sources.map((page) => (
               <Badge
                 key={page}
-                variant="indigo"
+                variant={msg.unitLabel === "Slide" ? "cyan" : "indigo"}
                 className="text-[11px] font-semibold tracking-wide px-2.5 py-0.5 rounded-md"
               >
-                Page {page}
+                {msg.unitLabel || "Page"} {page}
               </Badge>
             ))}
           </div>
@@ -231,12 +231,28 @@ export default function App() {
   const uploading = upload.status === "uploading";
   const canChat = Boolean(indexed) && !uploading;
 
-  // Pick up previously indexed PDF on mount
+  const isPpt = Boolean(
+    indexed?.kind === "pptx" ||
+      indexed?.unit_label === "Slide" ||
+      /\.(pptx|ppt)$/i.test(indexed?.filename || "")
+  );
+  const unitLabel = isPpt ? "Slide" : "Page";
+  const unitSingle = isPpt ? "slide" : "page";
+  const unitPlural = isPpt ? "slides" : "pages";
+
+  // Pick up previously indexed document on mount
   useEffect(() => {
     let cancelled = false;
     getIndexedDocument().then((doc) => {
       if (!cancelled && doc) {
-        setIndexed((cur) => cur ?? { filename: doc.filename, pages: doc.pages });
+        setIndexed((cur) =>
+          cur ?? {
+            filename: doc.filename,
+            pages: doc.pages,
+            kind: doc.kind,
+            unit_label: doc.unit_label,
+          }
+        );
       }
     });
     return () => {
@@ -270,16 +286,34 @@ export default function App() {
     stickRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 90;
   }
 
+  function isSupportedFile(file) {
+    return (
+      /\.(pdf|pptx|ppt)$/i.test(file?.name || "") ||
+      file?.type === "application/pdf" ||
+      file?.type === "application/vnd.openxmlformats-officedocument.presentationml.presentation" ||
+      file?.type === "application/vnd.ms-powerpoint"
+    );
+  }
+
   async function handleFile(file) {
     if (!file || uploading || busyRef.current) return;
-    if (!/\.pdf$/i.test(file.name) && file.type !== "application/pdf") {
-      setUpload({ status: "error", name: file.name, error: "Please choose a valid PDF file." });
+    if (!isSupportedFile(file)) {
+      setUpload({
+        status: "error",
+        name: file.name,
+        error: "Please choose a valid PDF or PowerPoint presentation (.pptx).",
+      });
       return;
     }
     setUpload({ status: "uploading", name: file.name, error: "" });
     try {
-      const doc = await uploadPdf(file);
-      setIndexed({ filename: doc.filename, pages: doc.pages });
+      const doc = await uploadDocument(file);
+      setIndexed({
+        filename: doc.filename,
+        pages: doc.pages ?? doc.units,
+        kind: doc.kind,
+        unit_label: doc.unit_label,
+      });
       setMessages([]);
       setUpload({ status: "idle", name: "", error: "" });
       inputRef.current?.focus();
@@ -342,6 +376,7 @@ export default function App() {
         content: "",
         thinking: "",
         sources: [],
+        unitLabel,
         status: "streaming",
       },
     ]);
@@ -391,7 +426,7 @@ export default function App() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-sm sm:text-base font-semibold tracking-tight text-slate-100">
-                PDF Chat
+                PDF & PPT Chat
               </h1>
               <Badge variant="outline" className="text-[10px] py-0 px-1.5 border-indigo-500/30 text-indigo-300 bg-indigo-500/10">
                 RAG
@@ -436,12 +471,12 @@ export default function App() {
                 <FileText className="size-8" />
               </div>
               <h2 className="text-xl sm:text-2xl font-bold tracking-tight text-slate-100 mb-2">
-                Welcome to PDF Chat
+                Welcome to Document Chat
               </h2>
               <p className="text-sm text-slate-400 leading-relaxed mb-8">
                 {indexed
                   ? `Ready to discuss "${indexed.filename}". Ask questions, request executive summaries, or inspect key citations.`
-                  : "Upload a PDF below to extract answers, explore excerpts, and chat directly with your document."}
+                  : "Upload a PDF or PowerPoint deck below to extract answers, explore excerpts, and chat directly with your document."}
               </p>
 
               {indexed ? (
@@ -471,7 +506,7 @@ export default function App() {
                     disabled={uploading}
                   >
                     <Paperclip className="size-4" />
-                    <span>Choose a PDF document</span>
+                    <span>Choose a document (PDF or PPTX)</span>
                   </Button>
                 </div>
               )}
@@ -525,14 +560,14 @@ export default function App() {
                 ) : (
                   <div className="flex items-center justify-between w-full text-slate-300">
                     <div className="flex items-center gap-2 truncate">
-                      <Badge variant="indigo" className="text-[10px] px-1.5 py-0 font-bold">
-                        PDF
+                      <Badge variant={isPpt ? "cyan" : "indigo"} className="text-[10px] px-1.5 py-0 font-bold">
+                        {isPpt ? "PPTX" : "PDF"}
                       </Badge>
                       <span className="font-medium truncate max-w-[240px] sm:max-w-md text-slate-200" title={indexed.filename}>
                         {indexed.filename}
                       </span>
                       <span className="text-slate-500 hidden sm:inline">
-                        ({indexed.pages} {indexed.pages === 1 ? "page" : "pages"})
+                        ({indexed.pages} {indexed.pages === 1 ? unitSingle : unitPlural})
                       </span>
                     </div>
                     <Button
@@ -542,7 +577,7 @@ export default function App() {
                       className="h-6 text-xs text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 px-2"
                       onClick={() => fileRef.current?.click()}
                       disabled={uploading || busy}
-                      title="Choose a different PDF to replace current index"
+                      title="Choose a different document to replace current index"
                     >
                       Replace
                     </Button>
@@ -556,7 +591,7 @@ export default function App() {
               <input
                 ref={fileRef}
                 type="file"
-                accept="application/pdf,.pdf"
+                accept=".pdf,.pptx,.ppt,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,application/vnd.ms-powerpoint"
                 hidden
                 onChange={onFileChange}
               />
@@ -571,8 +606,8 @@ export default function App() {
                 )}
                 disabled={uploading || busy}
                 onClick={() => fileRef.current?.click()}
-                title={indexed ? "Replace PDF" : "Attach PDF"}
-                aria-label={indexed ? "Replace PDF" : "Attach PDF"}
+                title={indexed ? "Replace document" : "Attach document"}
+                aria-label={indexed ? "Replace document" : "Attach document"}
               >
                 <Paperclip className="size-4" />
               </Button>
@@ -587,8 +622,8 @@ export default function App() {
                   canChat
                     ? busy
                       ? "Generating response... Click ■ to stop"
-                      : "Ask a question about your PDF..."
-                    : "Attach a PDF above to start chatting..."
+                      : `Ask a question about your ${isPpt ? "presentation" : "document"}...`
+                    : "Attach a PDF or PowerPoint deck above to start chatting..."
                 }
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={onKeyDown}

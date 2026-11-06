@@ -154,7 +154,7 @@ def test_study_pdf_returns_cards(client, pdf_bytes, monkeypatch):
 
 
 def test_study_pptx_returns_cards(client, tmp_path, monkeypatch):
-    async def fake(messages, transport=None, max_tokens=None, json_schema=None):
+    async def fake(messages, transport=None, max_tokens=None, json_schema=None, **kwargs):
         assert "[Slide 1]" in messages[1]["content"]
         return json.dumps([{"front": "Topic", "back": "Cells divide.", "source": "Slide 1"}])
 
@@ -195,7 +195,7 @@ def test_study_rejects_legacy_ppt_and_empty_pdf(client, pdf_bytes):
 
 
 def test_study_reports_bad_model_output(client, pdf_bytes, monkeypatch):
-    async def fake(messages, transport=None, max_tokens=None, json_schema=None):
+    async def fake(messages, transport=None, max_tokens=None, json_schema=None, **kwargs):
         return "sorry, no json"
 
     monkeypatch.setattr(llm, "complete", fake)
