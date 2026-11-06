@@ -86,31 +86,44 @@ def upload(file: Annotated[UploadFile, File()]) -> dict:
     tmp = config.UPLOAD_DIR / f".incoming-{uuid.uuid4().hex}"
     try:
         head = _write_upload(file, tmp)
-        if b"%PDF-" not in head:
-            raise HTTPException(400, "The file is not a valid PDF.")
         try:
-            page_count, pages = extract_pages(tmp)
-        except PDFError as e:
+            kind = detect_kind(file.filename or "", head)
+            label, unit_count, units = load_units(tmp, kind)
+        except (DocumentError, PDFError, SlideError) as e:
             raise HTTPException(400, str(e))
-        if not pages:
+        if not units:
             raise HTTPException(
-                422, "No extractable text found. Scanned/image-only PDFs need OCR, which is not supported."
+                422,
+                "No extractable text found. Scanned pages and image-only slides are not supported.",
             )
 
-        chunks = chunk_pages(pages, embeddings.token_spans, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
+        chunks = chunk_pages(units, embeddings.token_spans, config.CHUNK_TOKENS, config.CHUNK_OVERLAP)
         vectors = embeddings.embed_passages([c.text for c in chunks])
 
         doc_id = uuid.uuid4().hex
-        filename = Path(file.filename or "document.pdf").name
-        _store(store.replace_index, doc_id, filename, page_count, chunks, vectors)
+        ext = ".pptx" if kind == "pptx" else ".pdf"
+        filename = Path(file.filename or f"document{ext}").name
+        _store(store.replace_index, doc_id, filename, unit_count, chunks, vectors, kind)
 
-        final = config.UPLOAD_DIR / f"{doc_id}.pdf"
+        final = config.UPLOAD_DIR / f"{doc_id}{ext}"
         os.replace(tmp, final)
-        for old in config.UPLOAD_DIR.glob("*.pdf"):
-            if old != final:
+        for old in config.UPLOAD_DIR.glob("*"):
+            if (
+                old != final
+                and not old.name.startswith(".incoming-")
+                and not old.name.startswith(".study-")
+            ):
                 old.unlink(missing_ok=True)
-        log.info("Indexed %s: %d pages, %d chunks", filename, page_count, len(chunks))
-        return {"doc_id": doc_id, "filename": filename, "pages": page_count, "chunks": len(chunks)}
+        log.info("Indexed %s: %d %ss, %d chunks", filename, unit_count, label.lower(), len(chunks))
+        return {
+            "doc_id": doc_id,
+            "filename": filename,
+            "pages": unit_count,
+            "units": unit_count,
+            "unit_label": label,
+            "chunks": len(chunks),
+            "kind": kind,
+        }
     finally:
         tmp.unlink(missing_ok=True)
         upload_lock.release()
@@ -196,12 +209,14 @@ async def study(
         upload_lock.release()
 
 
-def _retrieve(question: str) -> list[store.Hit]:
+def _retrieve(question: str) -> tuple[str, list[store.Hit]]:
     doc = _store(store.current_document)
     if doc is None:
-        raise HTTPException(409, "No PDF has been uploaded yet.")
+        raise HTTPException(409, "No document has been uploaded yet.")
+    kind = doc.get("kind") or ("pptx" if doc.get("filename", "").lower().endswith(".pptx") else "pdf")
+    label = "Slide" if kind == "pptx" else "Page"
     vector = embeddings.embed_query(question)
-    return _store(store.search, vector, doc["doc_id"], config.TOP_K)
+    return label, _store(store.search, vector, doc["doc_id"], config.TOP_K)
 
 
 def _sse(event: str, data: object) -> str:
@@ -210,8 +225,8 @@ def _sse(event: str, data: object) -> str:
 
 @app.post("/api/chat")
 async def chat(req: ChatRequest) -> StreamingResponse:
-    hits = await run_in_threadpool(_retrieve, req.question)
-    messages = llm.build_messages(req.question, hits)
+    label, hits = await run_in_threadpool(_retrieve, req.question)
+    messages = llm.build_messages(req.question, hits, label=label)
 
     async def events():
         yield _sse("sources", sorted({h.page for h in hits}))
@@ -221,7 +236,7 @@ async def chat(req: ChatRequest) -> StreamingResponse:
             # would cut it off before any visible content is produced.
             # Response length is controlled by the "1-3 sentences" rule in SYSTEM_PROMPT.
             async for chunk in llm.stream_answer(messages):
-                event_type = "thinking" if chunk.is_thinking else "token"
+                event_type = "thinking" if getattr(chunk, "is_thinking", False) else "token"
                 yield _sse(event_type, {"text": str(chunk)})
         except llm.LLMError as e:
             log.error("LLM failure: %s", e)

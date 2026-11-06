@@ -33,6 +33,8 @@ uploads/
 chroma_data/
 hf_cache/
 *.pdf
+*.pptx
+*.ppt
 
 # macOS system files
 .DS_Store

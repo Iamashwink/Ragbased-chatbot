@@ -114,3 +114,92 @@ def test_cors_allows_configured_origin_only(client):
         headers={"Origin": "http://evil.example", "Access-Control-Request-Method": "POST"},
     )
     assert "access-control-allow-origin" not in bad.headers
+
+
+def test_upload_pptx_indexes_and_replaces(client, pptx_bytes):
+    data = pptx_bytes([("Slide One", "Introductory content", ""), ("Slide Two", "Deeper analysis", "")])
+    r = client.post(
+        "/api/upload",
+        files={
+            "file": (
+                "deck.pptx",
+                data,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert r.status_code == 200
+    body = r.json()
+    assert body["kind"] == "pptx"
+    assert body["unit_label"] == "Slide"
+    assert body["pages"] == 2
+    assert client.db["doc"]["kind"] == "pptx"
+    files = list(config.UPLOAD_DIR.glob("*"))
+    assert [f.name for f in files] == [f"{body['doc_id']}.pptx"]
+
+
+def test_upload_pptx_then_chat_uses_slide_citations(client, pptx_bytes, monkeypatch):
+    data = pptx_bytes([("Mitosis", "Cells divide into identical daughter cells", "")])
+    r = client.post(
+        "/api/upload",
+        files={
+            "file": (
+                "mitosis.pptx",
+                data,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert r.status_code == 200
+
+    async def fake(messages, transport=None):
+        assert "[Slide 1]" in messages[1]["content"]
+        assert "Cells divide" in messages[1]["content"]
+        yield "Daughter cells"
+
+    monkeypatch.setattr(llm, "stream_answer", fake)
+    res = client.post("/api/chat", json={"question": "how do cells divide?"})
+    assert res.headers["content-type"].startswith("text/event-stream")
+    events = sse(res)
+    assert events[0] == ("sources", [1])
+    assert events[1] == ("token", {"text": "Daughter cells"})
+    assert events[2] == ("done", {})
+
+
+def test_upload_rejects_legacy_ppt(client):
+    r = client.post(
+        "/api/upload",
+        files={"file": ("old.ppt", b"\xd0\xcf\x11\xe0rest", "application/vnd.ms-powerpoint")},
+    )
+    assert r.status_code == 400
+    assert "Older .ppt files are not supported" in r.json()["detail"]
+
+
+def test_upload_rejects_pptx_without_text(client, pptx_bytes):
+    data = pptx_bytes([("", "", "")])
+    r = client.post(
+        "/api/upload",
+        files={
+            "file": (
+                "empty.pptx",
+                data,
+                "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+            )
+        },
+    )
+    assert r.status_code == 422
+
+
+def test_upload_replaces_pptx_with_pdf(client, pptx_bytes, pdf_bytes):
+    pptx_data = pptx_bytes([("Slide 1", "Presentation content", "")])
+    r1 = client.post("/api/upload", files={"file": ("deck.pptx", pptx_data, "application/vnd.openxmlformats-officedocument.presentationml.presentation")})
+    assert r1.status_code == 200
+    files1 = list(config.UPLOAD_DIR.glob("*"))
+    assert [f.name for f in files1] == [f"{r1.json()['doc_id']}.pptx"]
+
+    pdf_data = pdf_bytes(["Document content"])
+    r2 = upload(client, pdf_data, name="doc.pdf")
+    assert r2.status_code == 200
+    files2 = list(config.UPLOAD_DIR.glob("*"))
+    assert [f.name for f in files2] == [f"{r2.json()['doc_id']}.pdf"]
+    assert client.db["doc"]["kind"] == "pdf"

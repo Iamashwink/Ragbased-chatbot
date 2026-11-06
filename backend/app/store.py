@@ -35,13 +35,23 @@ def ping() -> None:
 
 
 def current_document() -> dict | None:
-    """Metadata of the currently indexed PDF (doc_id, filename, pages, chunks), if any."""
+    """Metadata of the currently indexed document (doc_id, filename, pages, chunks, kind), if any."""
     meta = _collection().metadata or {}
-    return dict(meta) if "doc_id" in meta else None
+    if "doc_id" not in meta:
+        return None
+    doc = dict(meta)
+    if "kind" not in doc:
+        doc["kind"] = "pptx" if doc.get("filename", "").lower().endswith(".pptx") else "pdf"
+    return doc
 
 
 def replace_index(
-    doc_id: str, filename: str, page_count: int, chunks: list[Chunk], vectors: list[list[float]]
+    doc_id: str,
+    filename: str,
+    page_count: int,
+    chunks: list[Chunk],
+    vectors: list[list[float]],
+    kind: str = "pdf",
 ) -> None:
     """Index the new document, then drop everything belonging to previous ones.
 
@@ -64,6 +74,7 @@ def replace_index(
                 "filename": filename,
                 "pages": page_count,
                 "chunks": len(chunks),
+                "kind": kind,
             }
         )
     except Exception:
