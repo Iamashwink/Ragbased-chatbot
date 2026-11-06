@@ -2,7 +2,7 @@
 
 **Indexio** is a private, local Retrieval-Augmented Generation (RAG) platform supporting **PDF** and **PowerPoint (.pptx)** documents with two distinct modes: **Chat Mode** and **Study Mode**.
 
-### 👥 Team Members
+###  Team Members
 
 | Member Name | Roll Number |
 |---|---|
